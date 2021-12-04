@@ -1,13 +1,19 @@
 package helpers
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
 
 	"github.com/Phelickz/go-jwt-auth/database"
 	jwt "github.com/dgrijalva/jwt-go"
+	"go.mongodb.org/mongo-driver/bson"
+
+	// "go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 //creating struct for the jwt model
@@ -55,4 +61,70 @@ func GenerateAllTokens(email string, firstname string, lastname string, userType
 
 	return tokenJWT, refreshTokenJWT, err
 
+}
+
+func UpdateAllTokens(token string, refreshToken string, userId string) {
+	//find and update user
+
+	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+	// defer cancel()
+
+	// var updateObj primitive.D
+
+	// updateObj = append(updateObj, bson.E{"Token": token})
+	// updateObj = append(updateObj, bson.E{"Refresh_token": refreshToken})
+
+	Updated_at, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+	// updateObj = append(updateObj, bson.E{"updated_at", Updated_at})
+
+	upsert := true
+	// filter := bson.M{"user_id", userId}
+	opt := options.UpdateOptions{
+		Upsert: &upsert,
+	}
+
+	_, err := userCollection.UpdateOne(ctx, bson.M{"user_id": userId}, bson.D{{"$set", bson.M{
+		"token":         token,
+		"refresh_token": refreshToken,
+		"updated_at":    Updated_at,
+	}}}, &opt)
+
+	defer cancel()
+	// fmt.Println(result)
+
+	if err != nil {
+		log.Panic(err)
+		return
+	}
+}
+
+func ValidateToken(signedToken string) (claims *SignedDetails, msg string) {
+	token, err := jwt.ParseWithClaims(
+		signedToken,
+		&SignedDetails{},
+		func(t *jwt.Token) (interface{}, error) {
+			return []byte(SECRET_KEY), nil
+		},
+	)
+
+	if err != nil {
+		msg = err.Error()
+		return
+	}
+
+	claims, ok := token.Claims.(*SignedDetails)
+
+	if !ok {
+		msg = "Invalid token"
+		msg = err.Error()
+		return
+	}
+
+	if claims.ExpiresAt < time.Now().Local().Unix() {
+		msg = fmt.Sprintf("Token is expired")
+		msg = err.Error()
+		return
+	}
+
+	return claims, msg
 }

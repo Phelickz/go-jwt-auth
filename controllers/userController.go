@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // creating or opening a user collection
@@ -95,6 +96,10 @@ func Signup() gin.HandlerFunc {
 
 		defer cancel()
 
+		//hash password
+		hashedPassword := HashPassword(*user.Password)
+		user.Password = &hashedPassword
+
 		if err != nil {
 			log.Panic(err)
 			c.JSON(http.StatusInternalServerError, gin.H{"err": err.Error()})
@@ -133,14 +138,82 @@ func Signup() gin.HandlerFunc {
 	}
 }
 
-func Login() {}
+func Login() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		//creating variable user
+		var user models.User
+		var foundUser models.User
+
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+		defer cancel()
+
+		err := c.BindJSON(&user)
+
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		//check if user exists
+		dbErr := userCollection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&foundUser)
+		defer cancel()
+
+		if dbErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": dbErr})
+		}
+
+		//verifyPassword
+		correctPassword, msg := VerifyPassword(*user.Password, *foundUser.Password)
+		defer cancel()
+
+		if correctPassword == false {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			return
+		}
+
+		//generate tokens
+		loginToken, refreshToken, tokenErr := helpers.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, *foundUser.User_type, foundUser.User_id)
+
+		if tokenErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+			return
+		}
+
+		//update tokens in database
+		helpers.UpdateAllTokens(loginToken, refreshToken, foundUser.User_id)
+
+		foundUser.Token = &loginToken
+		foundUser.Refresh_token = &refreshToken
+
+		c.JSON(http.StatusOK, foundUser)
+
+	}
+}
 
 func GetAllUsers() {
 
 }
 
-func HashPassword() {
+func HashPassword(password string) string {
+	byte, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return string(byte)
 
 }
 
-func VerifyPassword() {}
+func VerifyPassword(userPassword string, providedPassword string) (bool, string) {
+	err := bcrypt.CompareHashAndPassword([]byte(providedPassword), []byte(userPassword))
+	check := true
+	msg := ""
+
+	if err != nil {
+		msg = fmt.Sprintf("Password is incorrect")
+		check = false
+	}
+
+	return check, msg
+}
