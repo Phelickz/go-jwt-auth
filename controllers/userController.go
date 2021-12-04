@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"net/http"
@@ -18,7 +19,7 @@ import (
 )
 
 // creating or opening a user collection
-var userCollection *mongo.Collection = (*mongo.Collection)(database.OpenCollection(database.Client, "user"))
+var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
 
 // creating a validator instance
 var validate = validator.New()
@@ -62,35 +63,43 @@ func Signup() gin.HandlerFunc {
 
 		//setting timeout
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		// fmt.Println("Here 1")
+		defer cancel()
 
 		//binding json
 		err := c.BindJSON(&user)
-		defer cancel()
 
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		// fmt.Println("Here 2 with", &user)
 
 		//validating the user data with the validation requirements in the user struct
-		validationErr := validate.Struct(user)
+		validationErr := validate.Struct(&user)
+		fmt.Println(validationErr)
 
 		if validationErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			c.Abort()
 			return
 		}
+		// fmt.Println("Here 3")
 
 		// getting the user count because I want to show the count of the user too
 		//using mongo func
 
 		//using count to check if the user email exists already
 		count, err := userCollection.CountDocuments(ctx, bson.M{"email": user.Email})
+		// fmt.Println("Here 4")
+
 		defer cancel()
 
 		if err != nil {
 			log.Panic(err)
 			c.JSON(http.StatusInternalServerError, gin.H{"err": err.Error()})
 		}
+		// fmt.Println("Here 5")
 
 		//checking if count is greater 0
 		if count > 0 {

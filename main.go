@@ -20,8 +20,10 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Logger())
 
+	//connecting to database
 	database.DBinstance()
 
+	//initializing routes
 	routes.AuthRoutes(router)
 	routes.UserRoutes(router)
 
@@ -29,5 +31,6 @@ func main() {
 		c.JSON(200, gin.H{"message": "Success"})
 	})
 
+	//starting server
 	router.Run(":" + port)
 }
